@@ -254,8 +254,55 @@ const storageKeys = {
 const appState = {
   currentLetterId: null,
   selectedMemory: 0,
-  speechSynthesisActive: false
+  speechSynthesisActive: false,
+  reasonIndex: 0
 };
+
+
+function safeReadJSON(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    return parsed ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function getManilaDateKey(date = new Date()) {
+  return date.toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
+}
+
+function getLetterStateSignature() {
+  return timelineData.map((item) => isLetterUnlocked(item.date) ? "1" : "0").join("");
+}
+
+function updateLockedLetterCountdowns() {
+  document.querySelectorAll(".letter-card.locked[data-countdown-date]").forEach((card) => {
+    const dateString = card.dataset.countdownDate;
+    const countdown = getCountdownParts(getDateFromString(dateString));
+    const fields = {
+      days: countdown.days,
+      hours: countdown.hours,
+      minutes: countdown.minutes,
+      seconds: String(countdown.seconds).padStart(2, "0")
+    };
+    Object.entries(fields).forEach(([name, value]) => {
+      const el = card.querySelector(`[data-count="${name}"]`);
+      if (el) el.textContent = value;
+    });
+  });
+}
 
 const memoryDescriptors = [
   "A little moment I never want to forget.",
@@ -362,10 +409,11 @@ function renderTimeline() {
     const cardClass = unlocked ? "unlocked" : "locked";
     return `
       <div class="timeline-item">
-        <div class="timeline-card ${cardClass}">
+        <div class="timeline-card ${cardClass}" data-timeline-date="${item.date}">
           <h4>♡ ${item.label}</h4>
           <div class="date">${formatDate(getDateFromString(item.date))}</div>
           <div class="quote">${item.quote}</div>
+          <div class="timeline-status">${unlocked ? "💗 UNLOCKED" : "🔒 WAITING FOR ITS DAY"}</div>
         </div>
       </div>
     `;
@@ -403,17 +451,17 @@ function renderLetterSection() {
 
     if (!unlocked) {
       return `
-        <div class="letter-card locked">
+        <div class="letter-card locked" data-countdown-date="${item.date}">
           <div class="card-title">${item.label}</div>
           <div class="dynamic-date">${formatDate(getDateFromString(item.date))}</div>
           <div class="locked-state">
             <div class="locked-emoji">🔒</div>
             <div class="locked-text">THIS LETTER IS STILL WAITING FOR ITS DAY</div>
             <div class="countdown-box">
-              <div class="count-box"><span class="num">${countdown.days}</span><span class="label">Days</span></div>
-              <div class="count-box"><span class="num">${countdown.hours}</span><span class="label">Hours</span></div>
-              <div class="count-box"><span class="num">${countdown.minutes}</span><span class="label">Minutes</span></div>
-              <div class="count-box"><span class="num">${String(countdown.seconds).padStart(2, "0")}</span><span class="label">Seconds</span></div>
+              <div class="count-box"><span class="num" data-count="days">${countdown.days}</span><span class="label">Days</span></div>
+              <div class="count-box"><span class="num" data-count="hours">${countdown.hours}</span><span class="label">Hours</span></div>
+              <div class="count-box"><span class="num" data-count="minutes">${countdown.minutes}</span><span class="label">Minutes</span></div>
+              <div class="count-box"><span class="num" data-count="seconds">${String(countdown.seconds).padStart(2, "0")}</span><span class="label">Seconds</span></div>
             </div>
           </div>
         </div>
@@ -473,7 +521,7 @@ function setupLetterEvents() {
       envelope.classList.add("open");
       paper.classList.add("visible");
       appState.currentLetterId = letterDate;
-      localStorage.setItem(storageKeys.lastLetter, letterDate);
+      safeWriteStorage(storageKeys.lastLetter, letterDate);
       showNotification("💗 NEW LOVE LETTER UNLOCKED", "Your monthsary letter from Michael is ready to open.");
     });
   });
@@ -497,7 +545,7 @@ function setupLetterEvents() {
         return;
       }
 
-      const replies = JSON.parse(localStorage.getItem(storageKeys.replies) || "[]");
+      const replies = safeReadJSON(storageKeys.replies, []);
       replies.unshift({
         id: `${letterDate}-${Date.now()}`,
         month: letterDate,
@@ -506,7 +554,7 @@ function setupLetterEvents() {
         displayDate: formatDateTime(new Date())
       });
 
-      localStorage.setItem(storageKeys.replies, JSON.stringify(replies));
+      safeWriteStorage(storageKeys.replies, replies.slice(0, 100));
       textarea.value = "";
       renderReplies();
       showNotification("💌 NEW REPLY FROM DONNAH", "Your reply was saved to the love journal.");
@@ -541,7 +589,7 @@ function handleSpeechAction(action, text) {
 
 function renderReplies() {
   const repliesList = document.getElementById("repliesList");
-  const replies = JSON.parse(localStorage.getItem(storageKeys.replies) || "[]");
+  const replies = safeReadJSON(storageKeys.replies, []);
 
   if (!replies.length) {
     repliesList.innerHTML = `
@@ -555,9 +603,9 @@ function renderReplies() {
 
   repliesList.innerHTML = replies.map((reply) => `
     <div class="reply-item">
-      <strong>Donnah replied on ${reply.displayDate}</strong>
-      <small>${formatDate(new Date(reply.createdAt))}</small>
-      <div>${reply.message}</div>
+      <strong>Donnah replied on ${escapeHtml(reply.displayDate || formatDateTime(new Date(reply.createdAt)))}</strong>
+      <small>${escapeHtml(formatDate(new Date(reply.createdAt)))}</small>
+      <div>${escapeHtml(reply.message).replace(/\n/g, "<br>")}</div>
     </div>
   `).join("");
 }
@@ -647,15 +695,15 @@ function renderMemoryStreams() {
 
   const repeat = [...MEMORY_FILES, ...MEMORY_FILES];
   rowOne.innerHTML = repeat.map((source, index) => `
-    <div class="stream-card">
+    <button class="stream-card" type="button" data-memory-index="${index % MEMORY_FILES.length}">
       <img src="${source}" alt="Love memory ${index + 1}" loading="lazy" />
-    </div>
+    </button>
   `).join("");
 
   rowTwo.innerHTML = [...repeat].reverse().map((source, index) => `
-    <div class="stream-card">
+    <button class="stream-card" type="button" data-memory-index="${index % MEMORY_FILES.length}">
       <img src="${source}" alt="Love memory reverse ${index + 1}" loading="lazy" />
-    </div>
+    </button>
   `).join("");
 }
 
@@ -676,7 +724,7 @@ function renderTodayMemory() {
 
 function renderLoveWall() {
   const wall = document.getElementById("loveWallNotes");
-  const notes = JSON.parse(localStorage.getItem(storageKeys.notes) || "[]");
+  const notes = safeReadJSON(storageKeys.notes, []);
 
   if (!notes.length) {
     wall.innerHTML = `
@@ -690,9 +738,9 @@ function renderLoveWall() {
 
   wall.innerHTML = notes.map((note) => `
     <div class="memory-note">
-      <strong>${note.title}</strong>
-      <small>${formatDate(new Date(note.date))}</small>
-      <div>${note.text}</div>
+      <strong>${escapeHtml(note.title)}</strong>
+      <small>${escapeHtml(formatDate(new Date(note.date)))}</small>
+      <div>${escapeHtml(note.text).replace(/\n/g, "<br>")}</div>
     </div>
   `).join("");
 }
@@ -706,9 +754,15 @@ function saveMemoryNote() {
     return;
   }
 
-  const notes = JSON.parse(localStorage.getItem(storageKeys.notes) || "[]");
+  const notes = safeReadJSON(storageKeys.notes, []);
   notes.unshift({ title, text, date: new Date().toISOString() });
-  localStorage.setItem(storageKeys.notes, JSON.stringify(notes));
+
+  try {
+    localStorage.setItem(storageKeys.notes, JSON.stringify(notes.slice(0, 100)));
+  } catch {
+    showNotification("⚠️ STORAGE FULL", "Your browser could not save the note.");
+    return;
+  }
 
   document.getElementById("memoryTitle").value = "";
   document.getElementById("memoryText").value = "";
@@ -717,12 +771,22 @@ function saveMemoryNote() {
 }
 
 function showNotification(title, body) {
-  const container = document.getElementById("toastContainer");
-  const toast = document.createElement("div");
-  toast.className = "toast";
-  toast.innerHTML = `<span class="title">${title}</span><span>${body}</span>`;
-  container.appendChild(toast);
-  setTimeout(() => toast.remove(), 3300);
+  const toastContainer = document.getElementById("toastContainer");
+  if (toastContainer) {
+    const toast = document.createElement("div");
+    toast.className = "toast";
+    toast.innerHTML = `<span class="title">${escapeHtml(title)}</span><span>${escapeHtml(body)}</span>`;
+    toastContainer.appendChild(toast);
+    setTimeout(() => toast.remove(), 3600);
+  }
+
+  const list = document.getElementById("notificationList");
+  if (list) {
+    const item = document.createElement("div");
+    item.className = "notification-item";
+    item.innerHTML = `<strong>${escapeHtml(title)}</strong><span>${escapeHtml(body)}</span><small>${escapeHtml(formatDateTime(new Date()))}</small>`;
+    list.prepend(item);
+  }
 }
 
 function openLightbox(index) {
@@ -758,53 +822,334 @@ function displayDailyLoveMessage() {
 }
 
 function initializeEvents() {
-  document.getElementById("surpriseBtn").addEventListener("click", () => {
+  const mobileNavToggle = document.getElementById("mobileNavToggle");
+  const mainNav = document.querySelector(".main-nav");
+  const navClose = document.querySelector(".nav-close");
+
+  const setNavOpen = (open) => {
+    if (!mainNav || !mobileNavToggle) return;
+    mainNav.classList.toggle("open", open);
+    mobileNavToggle.setAttribute("aria-expanded", String(open));
+    document.body.classList.toggle("nav-open", open);
+  };
+
+  mobileNavToggle?.addEventListener("click", () => {
+    setNavOpen(!mainNav.classList.contains("open"));
+  });
+  navClose?.addEventListener("click", () => setNavOpen(false));
+  document.querySelectorAll(".main-nav a").forEach((link) => {
+    link.addEventListener("click", () => setNavOpen(false));
+  });
+
+  document.getElementById("notificationsToggle")?.addEventListener("click", () => {
+    document.getElementById("notificationCenter")?.classList.toggle("hidden");
+  });
+  document.getElementById("closeNotifications")?.addEventListener("click", () => {
+    document.getElementById("notificationCenter")?.classList.add("hidden");
+  });
+
+  document.getElementById("surpriseBtn")?.addEventListener("click", () => {
     const randomMessage = loveMessages[Math.floor(Math.random() * loveMessages.length)];
     document.getElementById("todayLoveMessage").textContent = `"${randomMessage}"`;
     showNotification("✨ SURPRISE ME", "A new sweet message appeared just for you.");
   });
 
-  document.getElementById("secretBtn").addEventListener("click", () => {
+  document.getElementById("secretBtn")?.addEventListener("click", () => {
     document.getElementById("todayLoveMessage").textContent = `"Michael loves Donnah more than yesterday, but less than tomorrow."`;
     showNotification("♡ CLICK ME", "A hidden love message has been revealed.");
   });
 
-  document.getElementById("nightModeToggle").addEventListener("click", () => {
+  const nightBtn = document.getElementById("nightModeToggle");
+  const applyNightLabel = () => {
+    const active = document.body.classList.contains("night-mode");
+    if (nightBtn) nightBtn.textContent = active ? "☀️ LOVE DAY MODE" : "🌙 LOVE NIGHT MODE";
+  };
+
+  nightBtn?.addEventListener("click", () => {
     document.body.classList.toggle("night-mode");
-    localStorage.setItem(storageKeys.night, JSON.stringify(document.body.classList.contains("night-mode")));
+    safeWriteStorage(storageKeys.night, document.body.classList.contains("night-mode"));
+    applyNightLabel();
   });
 
-  const savedNightMode = JSON.parse(localStorage.getItem(storageKeys.night) || "false");
+  const savedNightMode = safeReadJSON(storageKeys.night, false);
   if (savedNightMode) document.body.classList.add("night-mode");
+  applyNightLabel();
 
-  document.getElementById("memoryTitle").addEventListener("keydown", (event) => {
+  document.getElementById("memoryTitle")?.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       saveMemoryNote();
     }
   });
-  document.getElementById("addMemoryBtn").addEventListener("click", saveMemoryNote);
 
-  document.querySelector(".close-lightbox").addEventListener("click", () => {
-    document.getElementById("viewer").classList.add("hidden");
-  });
+  document.getElementById("addMemoryBtn")?.addEventListener("click", saveMemoryNote);
 
-  document.getElementById("enterUniverseBtn").addEventListener("click", () => {
-    document.body.classList.toggle("anniversary-mode");
+  const closeViewer = () => {
+    document.getElementById("viewer")?.classList.add("hidden");
+  };
+
+  document.querySelector(".close-lightbox")?.addEventListener("click", closeViewer);
+  document.querySelector(".lightbox-backdrop")?.addEventListener("click", closeViewer);
+
+  document.getElementById("enterUniverseBtn")?.addEventListener("click", () => {
+    document.body.classList.toggle("memory-universe-mode");
     showNotification("🌌 MEMORY UNIVERSE", "You have entered a little galaxy of our love.");
   });
 
-  document.getElementById("unlockAllBtn").addEventListener("click", () => {
-    showNotification("💗 MEMORY FLOW", "Our love story glows brighter in every memory.");
+  document.getElementById("unlockAllBtn")?.addEventListener("click", () => {
+    document.querySelector(".memory-heart-section")?.classList.add("memory-reveal");
+    showNotification("💗 MEMORY FLOW", "The memory gallery is glowing. Monthsary letters remain date-locked.");
   });
 
-  document.getElementById("surpriseMemoryBtn").addEventListener("click", () => {
+  document.getElementById("surpriseMemoryBtn")?.addEventListener("click", () => {
     const index = Math.floor(Math.random() * MEMORY_FILES.length);
     openLightbox(index);
     showNotification("🎞 SURPRISE MEMORY", "A favorite moment has appeared for you.");
   });
 
+  const reasonNext = document.getElementById("nextReasonBtn");
+  reasonNext?.addEventListener("click", () => {
+    appState.reasonIndex = (appState.reasonIndex + 1) % reasonsILoveYou.length;
+    updateLoveReasons(appState.reasonIndex);
+  });
+  updateLoveReasons(appState.reasonIndex);
+
   document.getElementById("photoCountText").textContent = `${MEMORY_FILES.length} PHOTOS`;
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    setNavOpen(false);
+    document.getElementById("notificationCenter")?.classList.add("hidden");
+    closeViewer();
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+  });
+
+  // Open the last saved letter after a short delay only if it is unlocked.
+  const lastLetter = localStorage.getItem(storageKeys.lastLetter);
+  if (lastLetter && isLetterUnlocked(lastLetter)) {
+    setTimeout(() => {
+      const holder = document.querySelector(`[data-letter-box="${lastLetter}"]`);
+      if (!holder) return;
+      holder.querySelector(".letter-envelope")?.classList.add("open");
+      holder.querySelector(".letter-paper")?.classList.add("visible");
+      appState.currentLetterId = lastLetter;
+    }, 800);
+  }
+}
+
+function safeWriteStorage(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+
+const reasonsILoveYou = [
+  "Your smile makes my whole day warmer.",
+  "You make ordinary moments feel special.",
+  "You know how to make me laugh.",
+  "You make my heart feel at home.",
+  "You listen when I need someone.",
+  "You make me want to become a better version of myself.",
+  "You are beautiful inside and out.",
+  "You make me feel understood.",
+  "You remember the little things.",
+  "You make conversations feel effortless.",
+  "You make even quiet moments meaningful.",
+  "You bring comfort when I need it.",
+  "You are one of my favorite reasons to smile.",
+  "You make me excited for tomorrow.",
+  "You have a way of making me feel appreciated.",
+  "You make life feel a little softer.",
+  "You are someone I can be myself with.",
+  "You make memories worth keeping.",
+  "You make me feel lucky.",
+  "You have a beautiful heart.",
+  "You make my happiest moments even happier.",
+  "You stay on my mind in the sweetest ways.",
+  "You make me look forward to every new day.",
+  "You make love feel gentle.",
+  "You make the smallest gestures mean so much.",
+  "You make me feel cared for.",
+  "You have a smile I could look at forever.",
+  "You make me feel like I belong.",
+  "You bring color into my everyday life.",
+  "You make me want to keep writing our story.",
+  "You are my favorite person to talk to.",
+  "You make me feel peaceful.",
+  "You make my heart beat a little faster.",
+  "You make me appreciate the little moments.",
+  "You make my world brighter just by being in it.",
+  "You are patient with me.",
+  "You make me feel safe to share my thoughts.",
+  "You make me laugh at random things.",
+  "You are a beautiful part of my life.",
+  "You make me happy without even trying.",
+  "You inspire me to dream bigger.",
+  "You make me believe in little forever moments.",
+  "You are worth every heartbeat.",
+  "You make distance feel smaller.",
+  "You give me something beautiful to look forward to.",
+  "You make every chapter of our story better.",
+  "You have a kindness I deeply admire.",
+  "You make me want to celebrate every milestone.",
+  "You make me smile just by texting me.",
+  "You make my heart feel full.",
+  "You make home feel like a person.",
+  "You make even busy days feel sweeter.",
+  "You are easy to appreciate and impossible to forget.",
+  "You bring out my softer side.",
+  "You make me want to keep every photo.",
+  "You turn simple moments into memories.",
+  "You make me feel heard.",
+  "You make me believe that love can grow every day.",
+  "You make me proud to call you my love.",
+  "You are one of the best parts of my life.",
+  "You make me grateful for August 7, 2026.",
+  "You give our story its own little magic.",
+  "You make me excited about our future.",
+  "You are the person I want beside me for more memories.",
+  "You make me smile when I least expect it.",
+  "You are worth celebrating.",
+  "You make me want to slow down and enjoy the moment.",
+  "You make my heart choose you again and again.",
+  "You make the future feel exciting.",
+  "You make every month feel like a new chapter.",
+  "You make my life more meaningful.",
+  "You make me treasure conversations.",
+  "You make even random days memorable.",
+  "You are one of the people I trust most.",
+  "You make me feel appreciated.",
+  "You have a way of making me forget my worries.",
+  "You make me want to protect our memories.",
+  "You make the world feel friendlier.",
+  "You are beautiful in ways pictures cannot fully show.",
+  "You make me feel hopeful.",
+  "You make me want to keep learning about you.",
+  "You make my heart calm down when life gets loud.",
+  "You make me laugh when I need it most.",
+  "You make me want to keep choosing you.",
+  "You make every milestone matter.",
+  "You make my days brighter.",
+  "You are someone I never want to take for granted.",
+  "You make me excited to open a new chapter.",
+  "You make love feel like a safe place.",
+  "You make me want to keep our story alive.",
+  "You are a memory I never want to lose.",
+  "You make me grateful for every second.",
+  "You make my heart feel lighter.",
+  "You make me want to celebrate even the small wins.",
+  "You make me smile when I simply think of you.",
+  "You make me believe our story can keep growing.",
+  "You are my favorite kind of happiness.",
+  "You are you, and somehow that is more than enough."
+];
+
+function updateLoveReasons(index) {
+  const safe = ((index % reasonsILoveYou.length) + reasonsILoveYou.length) % reasonsILoveYou.length;
+  const card = document.getElementById("reasonCard");
+  const progress = document.getElementById("reasonProgress");
+  if (!card || !progress) return;
+  card.innerHTML = `
+    <div class="reason-number">${String(safe + 1).padStart(2, "0")} — Reason #${safe + 1}</div>
+    <p class="reason-text">${escapeHtml(reasonsILoveYou[safe])}</p>
+  `;
+  progress.textContent = `${safe + 1} / ${reasonsILoveYou.length}`;
+}
+
+function renderStaticExtras() {
+  const openWhen = [
+    ["💗 Open when you're sad", "Even on your hardest day, remember you are deeply loved and never alone in my heart."],
+    ["💌 Open when you miss me", "Close your eyes for a moment and imagine me beside you, holding your hand and smiling at you."],
+    ["🌙 Open when you can't sleep", "Rest your heart. Tomorrow can wait. Tonight, just remember that someone is always cheering for you."],
+    ["✨ Open when you need motivation", "You are stronger and more capable than you sometimes realize. Keep going, my love."],
+    ["🥹 Open when you need a hug", "Imagine the biggest warm hug from me. Stay there as long as you need."],
+    ["😂 Open when you want to smile", "Here is your reminder that our story has so many more funny moments waiting for us."]
+  ];
+
+  const openWhenList = document.getElementById("openWhenList");
+  if (openWhenList) {
+    openWhenList.innerHTML = openWhen.map(([title, message]) => `
+      <button class="open-when-card-item" type="button">
+        <span>${escapeHtml(title)}</span>
+        <span>♡</span>
+        <div class="open-when-message">${escapeHtml(message)}</div>
+      </button>
+    `).join("");
+
+    openWhenList.querySelectorAll(".open-when-card-item").forEach((button) => {
+      button.addEventListener("click", () => {
+        button.classList.toggle("revealed");
+        const title = button.querySelector("span")?.textContent || "Open when";
+        showNotification(title, button.querySelector(".open-when-message")?.textContent || "");
+      });
+    });
+  }
+
+  const stats = [
+    [String(timelineData.length), "Letters & milestones"],
+    [String(MEMORY_FILES.length), "Memories"],
+    [String(timelineData.length), "Milestones"],
+    ["∞", "Love level"],
+    ["7", "Our date"],
+    ["1", "Love story"]
+  ];
+  const statsGrid = document.getElementById("loveStatsGrid");
+  if (statsGrid) {
+    statsGrid.innerHTML = stats.map(([value, label]) => `
+      <div class="stat-box">
+        <strong>${value}</strong>
+        <span>${escapeHtml(label)}</span>
+      </div>
+    `).join("");
+  }
+}
+
+function updateDynamicUI() {
+  updatePhilippinesClock();
+  const diff = Math.max(0, Date.now() - relationshipStart.getTime());
+  const totalSeconds = Math.floor(diff / 1000);
+  const months = Math.floor(totalSeconds / (30.4375 * 86400));
+  const days = Math.floor((totalSeconds / 86400) % 30.4375);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  renderRelationshipCounter();
+  renderNextMonthsaryCountdown();
+  updateLockedLetterCountdowns();
+
+  const values = {
+    togetherMonths: months,
+    togetherDays: days,
+    togetherHours: hours,
+    togetherMinutes: minutes,
+    togetherSeconds: seconds
+  };
+  Object.entries(values).forEach(([id, value]) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = String(value);
+  });
+
+  const next = getNextMonthsary();
+  const countdown = getCountdownParts(getDateFromString(next.date));
+  const countdownValues = {
+    countdownDays: countdown.days,
+    countdownHours: countdown.hours,
+    countdownMinutes: countdown.minutes,
+    countdownSeconds: countdown.seconds,
+    monthsaryDays: countdown.days,
+    monthsaryHours: countdown.hours,
+    monthsaryMinutes: countdown.minutes,
+    monthsarySeconds: countdown.seconds
+  };
+  Object.entries(countdownValues).forEach(([id, value]) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = String(value).padStart(id.toLowerCase().includes("seconds") ? 2 : 1, "0");
+  });
 }
 
 function boot() {
@@ -815,21 +1160,28 @@ function boot() {
   renderJourney();
   renderMemoryGalaxy();
   renderMemoryStreams();
+  document.querySelectorAll(".stream-card").forEach((card) => card.addEventListener("click", () => openLightbox(Number(card.dataset.memoryIndex || 0))));
   renderTodayMemory();
   renderLoveWall();
+  renderStaticExtras();
   initializeEvents();
-  updatePhilippinesClock();
+  updateDynamicUI();
 
+  let lastLetterState = getLetterStateSignature();
   setInterval(() => {
-    updatePhilippinesClock();
-    renderRelationshipCounter();
-    renderNextMonthsaryCountdown();
-    renderTimeline();
-    renderLetterSection();
+    updateDynamicUI();
+
+    const nextLetterState = getLetterStateSignature();
+    if (nextLetterState !== lastLetterState) {
+      lastLetterState = nextLetterState;
+      renderTimeline();
+      renderLetterSection();
+      showNotification("💗 MONTHSARY UPDATE", "A new stage of our love story has arrived.");
+    }
   }, 1000);
 
   setTimeout(() => {
-    document.getElementById("loader").classList.add("hidden");
+    document.getElementById("loader")?.classList.add("hidden");
   }, 2600);
 }
 
