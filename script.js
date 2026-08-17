@@ -1212,7 +1212,8 @@ window.addEventListener("DOMContentLoaded", boot);
     useFirebase: false,
     firebaseReady: false,
     localDb: null,
-    localReady: false
+    localReady: false,
+    localPerson: localStorage.getItem("coupleLocalPerson") || "Michael"
   };
 
   const LOCAL_DB_NAME = "michaelDonnahPrivateVault";
@@ -1277,10 +1278,12 @@ window.addEventListener("DOMContentLoaded", boot);
     if (!vaultState.useFirebase) {
       setHidden("vaultAuthBox", true);
       setHidden("vaultManager", false);
-      setText("vaultSignedInAs", "Browser-only memory vault — this device only");
-      setText("vaultUserStatus", "Local photo mode");
+      setHidden("vaultLocalIdentity", false);
+      setText("vaultSignedInAs", `${vaultState.localPerson}'s browser-only memory vault`);
+      setText("vaultUserStatus", "Local photo mode — this device only");
       return;
     }
+    setHidden("vaultLocalIdentity", true);
 
     setHidden("vaultAuthBox", false);
     setHidden("vaultManager", !signedIn);
@@ -1758,6 +1761,8 @@ window.addEventListener("DOMContentLoaded", boot);
 
   async function initializeLocalVault() {
     vaultState.useFirebase = false;
+    const personSelect = el("vaultLocalPerson");
+    if (personSelect) personSelect.value = vaultState.localPerson;
     updateVaultModeUI();
     updateVaultAuthUI();
     await loadLocalVault();
@@ -1772,6 +1777,11 @@ window.addEventListener("DOMContentLoaded", boot);
     el("vaultCreateAccountBtn")?.addEventListener("click", createAccount);
     el("vaultLogoutBtn")?.addEventListener("click", signOut);
     el("vaultUploadBtn")?.addEventListener("click", handleVaultUpload);
+    el("vaultLocalPerson")?.addEventListener("change", (event) => {
+      vaultState.localPerson = event.target.value === "Donnah" ? "Donnah" : "Michael";
+      localStorage.setItem("coupleLocalPerson", vaultState.localPerson);
+      updateVaultAuthUI();
+    });
     el("vaultRefreshBtn")?.addEventListener("click", async () => {
       if (vaultState.useFirebase) await loadCloudVault();
       else await loadLocalVault();

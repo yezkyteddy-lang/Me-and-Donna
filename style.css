@@ -2645,3 +2645,37 @@ textarea {
     padding: 0.55rem;
   }
 }
+
+/* Utility: hidden elements must actually be removed from layout. */
+.hidden {
+  display: none !important;
+}
+
+/* Local vault identity selector */
+.vault-local-identity {
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+  flex-wrap: wrap;
+  margin-top: .75rem;
+  padding: .75rem .85rem;
+  border: 1px solid rgba(255,255,255,.24);
+  border-radius: 1rem;
+  background: rgba(255,255,255,.08);
+}
+.vault-local-identity label {
+  font-size: .72rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.vault-local-identity select {
+  flex: 1 1 13rem;
+  min-width: 0;
+  border: 1px solid rgba(255,255,255,.35);
+  border-radius: .85rem;
+  padding: .72rem .85rem;
+  background: rgba(255,255,255,.16);
+  color: var(--text);
+  outline: none;
+}
