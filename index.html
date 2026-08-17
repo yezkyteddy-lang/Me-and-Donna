@@ -247,6 +247,89 @@
           </div>
         </section>
 
+        <section id="private-vault" class="glass private-vault-panel">
+          <div class="panel-header">♡ PRIVATE COUPLE PHOTO VAULT ♡</div>
+          <div class="private-vault-intro">
+            <div>
+              <div class="memory-title">ONLY MICHAEL &amp; DONNAH</div>
+              <p>Upload and keep our memories in three spaces: shared memories, Michael's photos, and Donnah's photos.</p>
+            </div>
+            <div id="vaultSecurityBadge" class="vault-badge">🔐 LOCAL MODE</div>
+          </div>
+
+          <div id="vaultAuthBox" class="vault-auth-box">
+            <div class="vault-auth-copy">
+              <strong>Private access</strong>
+              <span id="vaultAuthMessage">Cloud mode lets only your two authorized accounts access the photo vault.</span>
+            </div>
+            <form id="vaultLoginForm" class="vault-login-form" autocomplete="on">
+              <input id="vaultEmail" type="email" autocomplete="email" placeholder="Email" aria-label="Email" />
+              <input id="vaultPassword" type="password" autocomplete="current-password" placeholder="Password" aria-label="Password" />
+              <button class="pink-btn" type="submit">🔐 SIGN IN</button>
+              <button id="vaultCreateAccountBtn" class="ghost-btn" type="button">CREATE ACCOUNT</button>
+              <button id="vaultLogoutBtn" class="ghost-btn hidden" type="button">SIGN OUT</button>
+            </form>
+            <div id="vaultUserStatus" class="vault-user-status" aria-live="polite">Not signed in</div>
+          </div>
+
+          <div id="vaultManager" class="vault-manager hidden">
+            <div class="vault-manager-top">
+              <div>
+                <div class="card-title">ADD A NEW MEMORY</div>
+                <div id="vaultSignedInAs" class="vault-signed-in-as"></div>
+              </div>
+              <button id="vaultRefreshBtn" class="ghost-btn small" type="button">↻ REFRESH</button>
+            </div>
+
+            <div class="vault-upload-grid">
+              <label class="vault-field">
+                <span>Album</span>
+                <select id="vaultAlbum">
+                  <option value="shared">♡ Our Shared Memories</option>
+                  <option value="michael">♡ Michael's Photos</option>
+                  <option value="donnah">♡ Donnah's Photos</option>
+                </select>
+              </label>
+              <label class="vault-field">
+                <span>Title</span>
+                <input id="vaultPhotoTitle" type="text" maxlength="100" placeholder="A little moment..." />
+              </label>
+              <label class="vault-field vault-field-wide">
+                <span>Caption</span>
+                <input id="vaultPhotoCaption" type="text" maxlength="240" placeholder="Write what this memory means to us..." />
+              </label>
+              <label class="vault-field vault-field-wide upload-dropzone" for="vaultPhotoFiles">
+                <span>Photos</span>
+                <strong>📸 TAP TO CHOOSE PHOTOS</strong>
+                <small id="vaultPhotoFileLabel">Multiple JPG, PNG, WEBP or HEIC-compatible browser images</small>
+                <input id="vaultPhotoFiles" type="file" accept="image/*" multiple />
+              </label>
+            </div>
+
+            <div class="vault-upload-actions">
+              <button id="vaultUploadBtn" class="pink-btn" type="button">💗 UPLOAD MEMORIES</button>
+              <div id="vaultUploadProgress" class="vault-progress-wrap hidden" aria-live="polite">
+                <div class="vault-progress-track"><div id="vaultProgressBar" class="vault-progress-bar"></div></div>
+                <span id="vaultProgressText">Uploading...</span>
+              </div>
+            </div>
+
+            <div class="vault-tabs" role="tablist" aria-label="Private photo albums">
+              <button class="vault-tab active" type="button" data-vault-filter="all">♡ ALL</button>
+              <button class="vault-tab" type="button" data-vault-filter="shared">♡ OUR MEMORIES</button>
+              <button class="vault-tab" type="button" data-vault-filter="michael">♡ MICHAEL</button>
+              <button class="vault-tab" type="button" data-vault-filter="donnah">♡ DONNAH</button>
+            </div>
+
+            <div id="vaultPhotoGrid" class="vault-photo-grid"></div>
+          </div>
+
+          <div id="vaultLocalNotice" class="vault-local-notice hidden">
+            <strong>Private cloud sync is not configured yet.</strong>
+            <span>This browser-only fallback keeps uploads on this device. To let Michael and Donnah see the same private photos on different devices, configure Firebase using the included setup files.</span>
+          </div>
+        </section>
+
         <section id="love-wall" class="glass love-wall">
           <div class="panel-header">♡ OUR LITTLE UNIVERSE ♡</div>
           <div class="memory-form">
@@ -290,6 +373,11 @@
     </div>
   </div>
 
+  <script src="firebase-config.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="script.js"></script>
 </body>
 </html>

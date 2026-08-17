@@ -1186,3 +1186,624 @@ function boot() {
 }
 
 window.addEventListener("DOMContentLoaded", boot);
+
+/* ==========================================================================
+   31. PRIVATE COUPLE PHOTO VAULT
+   - Local fallback uses IndexedDB so images do not blow up localStorage.
+   - Firebase mode provides cross-device sync for the two authorized accounts.
+   ========================================================================== */
+(function privateCoupleVault() {
+  const config = window.COUPLE_CONFIG || {
+    mode: "local",
+    allowedEmails: [],
+    firebase: {}
+  };
+
+  const vaultState = {
+    mode: String(config.mode || "local").toLowerCase(),
+    currentUser: null,
+    currentFilter: "all",
+    items: [],
+    visibleItems: [],
+    objectUrls: [],
+    db: null,
+    storage: null,
+    auth: null,
+    useFirebase: false,
+    firebaseReady: false,
+    localDb: null,
+    localReady: false
+  };
+
+  const LOCAL_DB_NAME = "michaelDonnahPrivateVault";
+  const LOCAL_STORE = "photos";
+  const MAX_FILE_SIZE = 12 * 1024 * 1024;
+
+  const el = (id) => document.getElementById(id);
+
+  function setText(id, value) {
+    const node = el(id);
+    if (node) node.textContent = value;
+  }
+
+  function setHidden(id, hidden) {
+    el(id)?.classList.toggle("hidden", Boolean(hidden));
+  }
+
+  function isAllowedEmail(email) {
+    const list = Array.isArray(config.allowedEmails) ? config.allowedEmails : [];
+    const normalized = String(email || "").trim().toLowerCase();
+    return normalized && list.some((entry) => {
+      const configured = String(entry || "").trim().toLowerCase();
+      return configured && configured !== "MICHAEL_EMAIL_HERE" && configured !== "DONNAH_EMAIL_HERE" && configured === normalized;
+    });
+  }
+
+  function personNameFromEmail(email) {
+    const normalized = String(email || "").trim().toLowerCase();
+    const allowed = Array.isArray(config.allowedEmails) ? config.allowedEmails : [];
+    if (allowed[0] && normalized === String(allowed[0]).trim().toLowerCase()) return "Michael";
+    if (allowed[1] && normalized === String(allowed[1]).trim().toLowerCase()) return "Donnah";
+    return "Our Love Story";
+  }
+
+  function updateVaultModeUI() {
+    const badge = el("vaultSecurityBadge");
+    const authMessage = el("vaultAuthMessage");
+    const localNotice = el("vaultLocalNotice");
+    const loginForm = el("vaultLoginForm");
+
+    if (vaultState.useFirebase) {
+      badge?.classList.add("cloud-ready");
+      if (badge) badge.textContent = "🔐 PRIVATE CLOUD MODE";
+      if (authMessage) authMessage.textContent = "Only the two authorized Firebase accounts can open this shared photo vault.";
+      localNotice?.classList.add("hidden");
+      loginForm?.classList.remove("hidden");
+      return;
+    }
+
+    badge?.classList.remove("cloud-ready");
+    if (badge) badge.textContent = "🔐 LOCAL MODE";
+    if (authMessage) authMessage.textContent = "Local mode works immediately, but photos saved here stay on this browser/device only.";
+    localNotice?.classList.remove("hidden");
+    loginForm?.classList.add("hidden");
+  }
+
+  function updateVaultAuthUI() {
+    const signedIn = Boolean(vaultState.currentUser);
+    setHidden("vaultManager", !signedIn && vaultState.useFirebase);
+    setHidden("vaultLogoutBtn", !signedIn || !vaultState.useFirebase);
+
+    if (!vaultState.useFirebase) {
+      setHidden("vaultAuthBox", true);
+      setHidden("vaultManager", false);
+      setText("vaultSignedInAs", "Browser-only memory vault — this device only");
+      setText("vaultUserStatus", "Local photo mode");
+      return;
+    }
+
+    setHidden("vaultAuthBox", false);
+    setHidden("vaultManager", !signedIn);
+
+    if (signedIn) {
+      const userLabel = `${personNameFromEmail(vaultState.currentUser.email)} • ${vaultState.currentUser.email}`;
+      setText("vaultUserStatus", `Signed in as ${userLabel}`);
+      setText("vaultSignedInAs", `Signed in as ${userLabel}`);
+    } else {
+      setText("vaultUserStatus", "Not signed in");
+      setText("vaultSignedInAs", "");
+    }
+  }
+
+  function showVaultEmpty(message = "No private photos yet.") {
+    const grid = el("vaultPhotoGrid");
+    if (!grid) return;
+    grid.innerHTML = `
+      <div class="vault-empty-state">
+        <strong>♡ Our private memories are waiting.</strong>
+        <span>${escapeHtml(message)}</span>
+      </div>
+    `;
+  }
+
+  function clearObjectUrls() {
+    vaultState.objectUrls.forEach((url) => URL.revokeObjectURL(url));
+    vaultState.objectUrls = [];
+  }
+
+  function albumLabel(album) {
+    if (album === "michael") return "♡ Michael";
+    if (album === "donnah") return "♡ Donnah";
+    return "♡ Our Memories";
+  }
+
+  function renderVaultGallery() {
+    const grid = el("vaultPhotoGrid");
+    if (!grid) return;
+
+    const filtered = vaultState.items.filter((item) => vaultState.currentFilter === "all" || item.album === vaultState.currentFilter);
+    vaultState.visibleItems = filtered;
+
+    if (!filtered.length) {
+      showVaultEmpty(
+        vaultState.currentFilter === "all"
+          ? "Add your first private photo memory above."
+          : `No photos are saved in the ${vaultState.currentFilter} album yet.`
+      );
+      return;
+    }
+
+    grid.innerHTML = filtered.map((item, index) => {
+      const imageSource = item.objectUrl || item.url || "";
+      const deleteAllowed = vaultState.useFirebase
+        ? Boolean(vaultState.currentUser && item.uploadedBy === vaultState.currentUser.uid)
+        : true;
+      return `
+        <article class="vault-photo-card">
+          <button class="vault-photo-button" type="button" data-vault-open="${escapeHtml(item.id)}" aria-label="Open ${escapeHtml(item.title || "memory")}">
+            <img src="${escapeHtml(imageSource)}" alt="${escapeHtml(item.title || "Private couple memory")}" loading="lazy" />
+          </button>
+          ${deleteAllowed ? `<button class="vault-photo-delete" type="button" data-vault-delete="${escapeHtml(item.id)}" aria-label="Delete memory">✕</button>` : ""}
+          <div class="vault-photo-meta">
+            <strong>${escapeHtml(item.title || "Untitled memory")}</strong>
+            <span>${escapeHtml(albumLabel(item.album))} • ${escapeHtml(item.uploaderName || "Our Love Story")}</span>
+            <small>${escapeHtml(formatDateTime(item.createdAt ? new Date(item.createdAt) : new Date()))}</small>
+            ${item.caption ? `<small>${escapeHtml(item.caption)}</small>` : ""}
+          </div>
+        </article>
+      `;
+    }).join("");
+
+    grid.querySelectorAll("[data-vault-open]").forEach((button) => {
+      button.addEventListener("click", () => openVaultViewer(button.dataset.vaultOpen));
+    });
+    grid.querySelectorAll("[data-vault-delete]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const item = vaultState.items.find((entry) => entry.id === button.dataset.vaultDelete);
+        if (!item) return;
+        const confirmed = window.confirm(`Delete “${item.title || "this memory"}”?`);
+        if (!confirmed) return;
+        await deleteVaultItem(item);
+      });
+    });
+  }
+
+  function setVaultFilter(filter) {
+    vaultState.currentFilter = filter;
+    document.querySelectorAll(".vault-tab").forEach((tab) => {
+      tab.classList.toggle("active", tab.dataset.vaultFilter === filter);
+    });
+    renderVaultGallery();
+  }
+
+  function openVaultViewer(itemId) {
+    const item = vaultState.visibleItems.find((entry) => entry.id === itemId) || vaultState.items.find((entry) => entry.id === itemId);
+    if (!item) return;
+
+    const viewer = el("viewer");
+    const image = el("lightboxImg");
+    const caption = el("lightboxCaption");
+    if (!viewer || !image || !caption) return;
+
+    appState.selectedMemory = 0;
+    image.src = item.objectUrl || item.url;
+    image.alt = item.title || "Private couple memory";
+    caption.textContent = `${item.title || "Our private memory"}${item.caption ? ` — ${item.caption}` : ""}`;
+    viewer.classList.remove("hidden");
+
+    const getIndex = () => Math.max(0, vaultState.visibleItems.findIndex((entry) => entry.id === item.id));
+    const showAt = (index) => {
+      if (!vaultState.visibleItems.length) return;
+      const safe = (index + vaultState.visibleItems.length) % vaultState.visibleItems.length;
+      const next = vaultState.visibleItems[safe];
+      image.src = next.objectUrl || next.url;
+      image.alt = next.title || "Private couple memory";
+      caption.textContent = `${next.title || "Our private memory"}${next.caption ? ` — ${next.caption}` : ""}`;
+    };
+
+    const previous = el("prevMemoryBtn");
+    const next = el("nextMemoryBtn");
+    if (previous) previous.onclick = () => showAt(getIndex() - 1);
+    if (next) next.onclick = () => showAt(getIndex() + 1);
+  }
+
+  function updateUploadProgress(percent, text) {
+    const wrap = el("vaultUploadProgress");
+    const bar = el("vaultProgressBar");
+    const label = el("vaultProgressText");
+    wrap?.classList.remove("hidden");
+    if (bar) bar.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+    if (label) label.textContent = text;
+  }
+
+  function finishUploadProgress() {
+    el("vaultUploadProgress")?.classList.add("hidden");
+    const bar = el("vaultProgressBar");
+    if (bar) bar.style.width = "0";
+  }
+
+  function getSelectedFiles() {
+    const input = el("vaultPhotoFiles");
+    return input?.files ? Array.from(input.files) : [];
+  }
+
+  function getUploadMeta() {
+    return {
+      album: el("vaultAlbum")?.value || "shared",
+      title: el("vaultPhotoTitle")?.value.trim() || "A little moment",
+      caption: el("vaultPhotoCaption")?.value.trim() || ""
+    };
+  }
+
+  function validateFiles(files) {
+    if (!files.length) {
+      showNotification("📸 NO PHOTOS SELECTED", "Choose one or more pictures first.");
+      return false;
+    }
+    for (const file of files) {
+      if (!file.type.startsWith("image/")) {
+        showNotification("⚠️ IMAGE ONLY", `${file.name} is not an image file.`);
+        return false;
+      }
+      if (file.size > MAX_FILE_SIZE) {
+        showNotification("⚠️ FILE TOO LARGE", `${file.name} is larger than 12 MB.`);
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function resetUploadForm() {
+    if (el("vaultPhotoFiles")) el("vaultPhotoFiles").value = "";
+    setText("vaultPhotoFileLabel", "Multiple JPG, PNG, WEBP or browser-compatible image files");
+    if (el("vaultPhotoTitle")) el("vaultPhotoTitle").value = "";
+    if (el("vaultPhotoCaption")) el("vaultPhotoCaption").value = "";
+  }
+
+  async function openLocalDb() {
+    if (vaultState.localReady) return vaultState.localDb;
+    vaultState.localDb = await new Promise((resolve, reject) => {
+      const request = indexedDB.open(LOCAL_DB_NAME, 1);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains(LOCAL_STORE)) {
+          db.createObjectStore(LOCAL_STORE, { keyPath: "id" });
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error || new Error("IndexedDB could not be opened."));
+    });
+    vaultState.localReady = true;
+    return vaultState.localDb;
+  }
+
+  async function localPutPhoto(record) {
+    const db = await openLocalDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(LOCAL_STORE, "readwrite");
+      tx.objectStore(LOCAL_STORE).put(record);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error || new Error("Could not save local photo."));
+    });
+  }
+
+  async function localGetPhotos() {
+    const db = await openLocalDb();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(LOCAL_STORE, "readonly");
+      const request = tx.objectStore(LOCAL_STORE).getAll();
+      request.onsuccess = () => {
+        const list = Array.isArray(request.result) ? request.result : [];
+        list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        resolve(list);
+      };
+      request.onerror = () => reject(request.error || new Error("Could not read local photos."));
+    });
+  }
+
+  async function localDeletePhoto(id) {
+    const db = await openLocalDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(LOCAL_STORE, "readwrite");
+      tx.objectStore(LOCAL_STORE).delete(id);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error || new Error("Could not delete local photo."));
+    });
+  }
+
+  async function loadLocalVault() {
+    try {
+      clearObjectUrls();
+      const list = await localGetPhotos();
+      vaultState.items = list.map((item) => ({
+        ...item,
+        objectUrl: URL.createObjectURL(item.blob),
+      }));
+      vaultState.objectUrls = vaultState.items.map((item) => item.objectUrl);
+      renderVaultGallery();
+    } catch (error) {
+      showNotification("⚠️ LOCAL VAULT ERROR", error?.message || "Your browser could not open the local photo vault.");
+      showVaultEmpty("Your browser may have private storage disabled.");
+    }
+  }
+
+  async function uploadLocalPhotos(files, meta) {
+    updateUploadProgress(2, `Preparing ${files.length} photo${files.length === 1 ? "" : "s"}...`);
+    const person = vaultState.currentUser?.email ? personNameFromEmail(vaultState.currentUser.email) : "Our Love Story";
+    for (let i = 0; i < files.length; i += 1) {
+      const file = files[i];
+      const id = `local-${Date.now()}-${i}-${crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)}`;
+      await localPutPhoto({
+        id,
+        album: meta.album,
+        title: files.length > 1 ? `${meta.title} ${i + 1}` : meta.title,
+        caption: meta.caption,
+        uploadedBy: person,
+        uploaderName: person,
+        createdAt: new Date().toISOString(),
+        blob: file,
+        mimeType: file.type
+      });
+      updateUploadProgress(((i + 1) / files.length) * 100, `Saved ${i + 1} of ${files.length}`);
+    }
+    await loadLocalVault();
+    resetUploadForm();
+    finishUploadProgress();
+    showNotification("💗 MEMORIES SAVED", "Your photos were added to this browser's private vault.");
+  }
+
+  async function firebaseUploadFile(file, meta, user, index, total) {
+    const id = `${Date.now()}-${crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)}`;
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-120);
+    const path = `couple-memories/${user.uid}/${id}-${safeName}`;
+    const ref = vaultState.storage.ref(path);
+    const metadata = {
+      contentType: file.type,
+      customMetadata: {
+        uploaderUid: user.uid,
+        album: meta.album
+      }
+    };
+    const task = ref.put(file, metadata);
+    await new Promise((resolve, reject) => {
+      task.on(
+        "state_changed",
+        (snapshot) => {
+          const perFile = snapshot.totalBytes ? snapshot.bytesTransferred / snapshot.totalBytes : 0;
+          const overall = ((index + perFile) / total) * 100;
+          updateUploadProgress(overall, `Uploading ${index + 1} of ${total}… ${Math.round(perFile * 100)}%`);
+        },
+        reject,
+        resolve
+      );
+    });
+
+    const url = await ref.getDownloadURL();
+    await vaultState.db.collection("coupleMemories").doc(id).set({
+      album: meta.album,
+      title: total > 1 ? `${meta.title} ${index + 1}` : meta.title,
+      caption: meta.caption,
+      url,
+      storagePath: path,
+      uploadedBy: user.uid,
+      uploaderName: personNameFromEmail(user.email),
+      uploaderEmail: user.email,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  }
+
+  async function uploadCloudPhotos(files, meta) {
+    const user = vaultState.currentUser;
+    if (!user || !vaultState.useFirebase) return;
+    updateUploadProgress(0, "Starting secure upload...");
+    try {
+      for (let i = 0; i < files.length; i += 1) {
+        await firebaseUploadFile(files[i], meta, user, i, files.length);
+      }
+      await loadCloudVault();
+      resetUploadForm();
+      finishUploadProgress();
+      showNotification("🔐 PRIVATE MEMORIES SAVED", "Your photos are now synced to the private couple vault.");
+    } catch (error) {
+      finishUploadProgress();
+      showNotification("⚠️ UPLOAD FAILED", firebaseFriendlyError(error));
+    }
+  }
+
+  async function handleVaultUpload() {
+    const files = getSelectedFiles();
+    if (!validateFiles(files)) return;
+    const meta = getUploadMeta();
+    if (vaultState.useFirebase) {
+      await uploadCloudPhotos(files, meta);
+    } else {
+      await uploadLocalPhotos(files, meta);
+    }
+  }
+
+  function firebaseFriendlyError(error) {
+    const code = String(error?.code || "");
+    const messages = {
+      "auth/invalid-email": "That email address is not valid.",
+      "auth/invalid-credential": "The email or password is incorrect.",
+      "auth/wrong-password": "The email or password is incorrect.",
+      "auth/user-not-found": "That account does not exist yet.",
+      "auth/email-already-in-use": "That email already has an account.",
+      "auth/weak-password": "Use a stronger password with at least 6 characters.",
+      "auth/too-many-requests": "Too many attempts. Wait a little and try again.",
+      "permission-denied": "Firebase rules rejected this action. Check the two allowed emails in the rules files.",
+      "storage/unauthorized": "Firebase Storage rules rejected this photo.",
+      "storage/canceled": "The upload was canceled.",
+      "storage/quota-exceeded": "The Firebase Storage quota was exceeded."
+    };
+    return messages[code] || error?.message || "Something went wrong.";
+  }
+
+  async function loadCloudVault() {
+    if (!vaultState.useFirebase || !vaultState.currentUser) return;
+    try {
+      const snapshot = await vaultState.db.collection("coupleMemories").orderBy("createdAt", "desc").limit(200).get();
+      vaultState.items = snapshot.docs.map((doc) => {
+        const data = doc.data() || {};
+        const createdAt = data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : (data.createdAt || new Date().toISOString());
+        return { id: doc.id, ...data, createdAt };
+      });
+      renderVaultGallery();
+    } catch (error) {
+      showNotification("⚠️ VAULT COULD NOT LOAD", firebaseFriendlyError(error));
+      showVaultEmpty("The cloud gallery could not be loaded. Check Firebase Firestore rules and indexes.");
+    }
+  }
+
+  async function deleteVaultItem(item) {
+    try {
+      if (vaultState.useFirebase) {
+        if (!vaultState.currentUser || item.uploadedBy !== vaultState.currentUser.uid) {
+          showNotification("🔐 DELETE PROTECTED", "Only the person who uploaded this memory can delete it.");
+          return;
+        }
+        await vaultState.storage.ref(item.storagePath).delete();
+        await vaultState.db.collection("coupleMemories").doc(item.id).delete();
+        showNotification("🗑 MEMORY DELETED", "That private photo was removed from the cloud vault.");
+        await loadCloudVault();
+      } else {
+        await localDeletePhoto(item.id);
+        showNotification("🗑 MEMORY DELETED", "That photo was removed from this browser's vault.");
+        await loadLocalVault();
+      }
+    } catch (error) {
+      showNotification("⚠️ DELETE FAILED", firebaseFriendlyError(error));
+    }
+  }
+
+  async function signIn() {
+    if (!vaultState.auth) return;
+    const email = el("vaultEmail")?.value.trim();
+    const password = el("vaultPassword")?.value;
+    if (!email || !password) {
+      showNotification("🔐 LOGIN REQUIRED", "Enter your email and password.");
+      return;
+    }
+    if (!isAllowedEmail(email)) {
+      showNotification("🔐 PRIVATE ACCESS", "That email is not one of the two authorized couple accounts.");
+      return;
+    }
+    try {
+      await vaultState.auth.signInWithEmailAndPassword(email, password);
+    } catch (error) {
+      showNotification("⚠️ SIGN IN FAILED", firebaseFriendlyError(error));
+    }
+  }
+
+  async function createAccount() {
+    if (!vaultState.auth) return;
+    const email = el("vaultEmail")?.value.trim();
+    const password = el("vaultPassword")?.value;
+    if (!email || !password) {
+      showNotification("🔐 ACCOUNT DETAILS", "Enter the authorized email and a password first.");
+      return;
+    }
+    if (!isAllowedEmail(email)) {
+      showNotification("🔐 PRIVATE ACCESS", "Only the two authorized email addresses can create accounts.");
+      return;
+    }
+    try {
+      await vaultState.auth.createUserWithEmailAndPassword(email, password);
+      showNotification("💗 ACCOUNT CREATED", "Your private couple account is ready.");
+    } catch (error) {
+      showNotification("⚠️ ACCOUNT NOT CREATED", firebaseFriendlyError(error));
+    }
+  }
+
+  async function signOut() {
+    try {
+      await vaultState.auth?.signOut();
+    } catch (error) {
+      showNotification("⚠️ SIGN OUT FAILED", firebaseFriendlyError(error));
+    }
+  }
+
+  async function initializeFirebaseVault() {
+    if (!window.firebase || !window.firebase.initializeApp) {
+      throw new Error("Firebase scripts did not load.");
+    }
+    if (!config.firebase || !config.firebase.apiKey || String(config.firebase.apiKey).startsWith("YOUR_")) {
+      throw new Error("Firebase configuration placeholders are still in firebase-config.js.");
+    }
+
+    if (!firebase.apps.length) firebase.initializeApp(config.firebase);
+    vaultState.auth = firebase.auth();
+    vaultState.db = firebase.firestore();
+    vaultState.storage = firebase.storage();
+    vaultState.useFirebase = true;
+    vaultState.firebaseReady = true;
+    updateVaultModeUI();
+
+    vaultState.auth.onAuthStateChanged(async (user) => {
+      if (user && !isAllowedEmail(user.email)) {
+        showNotification("🔐 ACCESS DENIED", "This account is not one of the two authorized couple accounts.");
+        await vaultState.auth.signOut();
+        return;
+      }
+      vaultState.currentUser = user || null;
+      updateVaultAuthUI();
+      if (user) {
+        await loadCloudVault();
+      } else {
+        vaultState.items = [];
+        renderVaultGallery();
+      }
+    });
+  }
+
+  async function initializeLocalVault() {
+    vaultState.useFirebase = false;
+    updateVaultModeUI();
+    updateVaultAuthUI();
+    await loadLocalVault();
+  }
+
+  function bindVaultEvents() {
+    el("vaultLoginForm")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      await signIn();
+    });
+
+    el("vaultCreateAccountBtn")?.addEventListener("click", createAccount);
+    el("vaultLogoutBtn")?.addEventListener("click", signOut);
+    el("vaultUploadBtn")?.addEventListener("click", handleVaultUpload);
+    el("vaultRefreshBtn")?.addEventListener("click", async () => {
+      if (vaultState.useFirebase) await loadCloudVault();
+      else await loadLocalVault();
+      showNotification("↻ MEMORY VAULT", "Your private photo gallery is up to date.");
+    });
+
+    el("vaultPhotoFiles")?.addEventListener("change", () => {
+      const files = getSelectedFiles();
+      setText("vaultPhotoFileLabel", files.length ? `${files.length} photo${files.length === 1 ? "" : "s"} selected` : "Multiple JPG, PNG, WEBP or browser-compatible image files");
+    });
+
+    document.querySelectorAll("[data-vault-filter]").forEach((tab) => {
+      tab.addEventListener("click", () => setVaultFilter(tab.dataset.vaultFilter || "all"));
+    });
+  }
+
+  window.addEventListener("beforeunload", clearObjectUrls);
+
+  window.addEventListener("DOMContentLoaded", async () => {
+    bindVaultEvents();
+    try {
+      if (vaultState.mode === "firebase") {
+        await initializeFirebaseVault();
+      } else {
+        await initializeLocalVault();
+      }
+    } catch (error) {
+      vaultState.useFirebase = false;
+      updateVaultModeUI();
+      updateVaultAuthUI();
+      showNotification("🔐 PRIVATE VAULT", "Cloud mode is not ready, so the site is using the safe local photo fallback.");
+      await loadLocalVault();
+    }
+  });
+})();

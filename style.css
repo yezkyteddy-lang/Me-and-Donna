@@ -2271,3 +2271,377 @@ textarea {
     animation: none !important;
   }
 }
+
+/* 31. Private couple photo vault */
+.private-vault-panel {
+  padding: 1.2rem 1rem;
+  border-radius: 1.5rem;
+  overflow: hidden;
+}
+
+.private-vault-intro,
+.vault-manager-top,
+.vault-upload-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.private-vault-intro p {
+  margin: 0.45rem 0 0;
+  max-width: 48rem;
+  color: var(--text-soft);
+}
+
+.vault-badge,
+.vault-user-status,
+.vault-signed-in-as {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.2);
+  color: var(--text-soft);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.vault-badge.cloud-ready {
+  color: var(--pink-strong);
+  background: rgba(255, 93, 168, 0.1);
+}
+
+.vault-auth-box,
+.vault-manager,
+.vault-local-notice {
+  margin-top: 1rem;
+  padding: 1rem;
+  border-radius: 1.2rem;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.18);
+}
+
+.vault-auth-copy {
+  display: grid;
+  gap: 0.25rem;
+  margin-bottom: 0.8rem;
+}
+
+.vault-auth-copy strong {
+  font-size: 1rem;
+}
+
+.vault-auth-copy span,
+.vault-local-notice span {
+  color: var(--text-soft);
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
+.vault-login-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto auto;
+  gap: 0.55rem;
+  align-items: stretch;
+}
+
+.vault-login-form input,
+.vault-field input,
+.vault-field select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid rgba(255,255,255,0.25);
+  background: rgba(255,255,255,0.1);
+  color: var(--text);
+  border-radius: 0.9rem;
+  padding: 0.82rem 0.9rem;
+}
+
+.vault-login-form input::placeholder,
+.vault-field input::placeholder {
+  color: var(--text-soft);
+  opacity: 0.75;
+}
+
+.vault-login-form .pink-btn,
+.vault-login-form .ghost-btn {
+  white-space: nowrap;
+}
+
+.vault-user-status {
+  margin-top: 0.8rem;
+}
+
+.vault-upload-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+  margin-top: 1rem;
+}
+
+.vault-field {
+  display: grid;
+  gap: 0.42rem;
+  min-width: 0;
+}
+
+.vault-field > span {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-soft);
+  font-weight: 800;
+}
+
+.vault-field-wide {
+  grid-column: 1 / -1;
+}
+
+.upload-dropzone {
+  display: grid;
+  place-items: center;
+  text-align: center;
+  min-height: 8rem;
+  padding: 1rem;
+  border: 1.5px dashed rgba(255, 91, 165, 0.48);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.07);
+  cursor: pointer;
+  transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+}
+
+.upload-dropzone:hover,
+.upload-dropzone:focus-within {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.11);
+  border-color: var(--pink);
+}
+
+.upload-dropzone strong {
+  color: var(--pink-strong);
+  font-size: 0.9rem;
+}
+
+.upload-dropzone small {
+  max-width: 34rem;
+  color: var(--text-soft);
+  font-size: 0.7rem;
+}
+
+.upload-dropzone input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.vault-upload-actions {
+  margin-top: 0.8rem;
+  align-items: flex-start;
+}
+
+.vault-progress-wrap {
+  display: grid;
+  gap: 0.3rem;
+  width: min(25rem, 100%);
+}
+
+.vault-progress-track {
+  width: 100%;
+  height: 0.6rem;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255,255,255,0.14);
+  border: 1px solid rgba(255,255,255,0.18);
+}
+
+.vault-progress-bar {
+  width: 0;
+  height: 100%;
+  background: linear-gradient(90deg, var(--pink), var(--purple));
+  transition: width 0.2s ease;
+}
+
+#vaultProgressText {
+  color: var(--text-soft);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.vault-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 1.1rem;
+}
+
+.vault-tab {
+  border-radius: 999px;
+  padding: 0.65rem 0.85rem;
+  color: var(--text-soft);
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.18);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.vault-tab.active {
+  color: white;
+  background: linear-gradient(135deg, var(--pink), var(--pink-strong));
+  border-color: transparent;
+}
+
+.vault-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.vault-photo-card {
+  position: relative;
+  overflow: hidden;
+  min-width: 0;
+  border-radius: 1rem;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.2);
+  box-shadow: 0 14px 30px rgba(82, 28, 58, 0.1);
+}
+
+.vault-photo-button {
+  display: block;
+  width: 100%;
+  padding: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.vault-photo-button img {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  transition: transform 0.35s ease;
+}
+
+.vault-photo-card:hover .vault-photo-button img {
+  transform: scale(1.045);
+}
+
+.vault-photo-meta {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.7rem;
+}
+
+.vault-photo-meta strong {
+  font-size: 0.82rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vault-photo-meta span,
+.vault-photo-meta small {
+  color: var(--text-soft);
+  font-size: 0.67rem;
+}
+
+.vault-photo-delete {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.45rem;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  background: rgba(70, 17, 46, 0.66);
+  color: white;
+  border: 1px solid rgba(255,255,255,0.32);
+}
+
+.vault-empty-state {
+  grid-column: 1 / -1;
+  padding: 2rem 1rem;
+  text-align: center;
+  color: var(--text-soft);
+  border: 1px dashed rgba(255,255,255,0.22);
+  border-radius: 1rem;
+}
+
+.vault-empty-state strong {
+  display: block;
+  color: var(--text);
+  margin-bottom: 0.35rem;
+}
+
+.vault-local-notice {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.vault-local-notice strong {
+  color: var(--pink-strong);
+}
+
+@media (max-width: 900px) {
+  .vault-login-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .vault-login-form .pink-btn,
+  .vault-login-form .ghost-btn {
+    width: 100%;
+  }
+  .vault-photo-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .private-vault-panel {
+    padding: 1rem 0.8rem;
+  }
+  .vault-upload-grid,
+  .vault-login-form {
+    grid-template-columns: 1fr;
+  }
+  .vault-field-wide {
+    grid-column: auto;
+  }
+  .vault-manager-top,
+  .vault-upload-actions {
+    align-items: stretch;
+  }
+  .vault-manager-top > *,
+  .vault-upload-actions > * {
+    width: 100%;
+  }
+  .vault-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .vault-tab {
+    width: 100%;
+  }
+  .vault-photo-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .vault-badge {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 360px) {
+  .vault-photo-grid {
+    gap: 0.45rem;
+  }
+  .vault-photo-meta {
+    padding: 0.55rem;
+  }
+}
